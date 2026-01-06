@@ -207,7 +207,7 @@ const NotesApp = () => {
   };
 
   const handleLike = async (noteId) => {
-    if (!user) return;
+    if (!user || !noteId) return; // double-check
 
     try {
       const res = await fetch(`${BASE_URL}/notes/${noteId}/like`, {
@@ -215,15 +215,8 @@ const NotesApp = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: user.email })
       });
-
-      if (res.ok) {
-        fetchNotes(); // Refresh notes to show updated likes
-      } else {
-        console.error('Like failed');
-      }
-    } catch (err) {
-      console.error('Like error:', err);
-    }
+      if (res.ok) fetchNotes();
+    } catch (err) { console.error(err); }
   };
 
   const clearFilters = () => {
@@ -563,7 +556,7 @@ const NotesApp = () => {
           ) : (
             <div className="space-y-6">
               {filteredNotes.map(note => (
-                <div key={note.id} className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl shadow-sm overflow-hidden`}>
+                <div key={note._id} className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl shadow-sm overflow-hidden`}>
                   {/* Header */}
                   <div className="p-4 flex items-center gap-3">
                     <img
@@ -585,7 +578,7 @@ const NotesApp = () => {
                       className="cursor-pointer relative group"
                       onClick={() => setViewingNote(note)}
                     >
-                      <img src={`http://localhost:5000${note.filePath}`} alt={note.fileName} className="w-full" />
+                      <img src={`${BASE_URL}${note.filePath}`} alt={note.fileName} className="w-full" />
                       <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all flex items-center justify-center">
                         <Eye className="w-12 h-12 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
@@ -672,7 +665,7 @@ const NotesApp = () => {
                         </button>
                       )}
                       <button
-                        onClick={() => handleLike(note.id)}
+                        onClick={() => handleLike(note._id)}
                         className={`flex items-center gap-2 transition-colors ${
                           note.likedBy.includes(user.email)
                             ? 'text-red-600'
