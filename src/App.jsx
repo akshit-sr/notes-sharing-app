@@ -44,13 +44,26 @@ const NotesApp = () => {
 
   // Load saved data on mount
   useEffect(() => {
-    const savedUser = JSON.parse(localStorage.getItem('notesAppUser') || 'null');
-    const savedDarkMode = JSON.parse(localStorage.getItem('darkMode') || 'false');
+    let savedUser = null;
+    try {
+      savedUser = JSON.parse(localStorage.getItem('notesAppUser'));
+    } catch (e) {
+      console.warn('Invalid user in localStorage, clearing it');
+      localStorage.removeItem('notesAppUser'); // Clear broken data
+    }
     setUser(savedUser);
+
+    let savedDarkMode = false;
+    try {
+      savedDarkMode = JSON.parse(localStorage.getItem('darkMode') || 'false');
+    } catch (e) {
+      savedDarkMode = false;
+    }
     setDarkMode(savedDarkMode);
 
-    fetchNotes(); // fetch all notes from BASE_URL
+    fetchNotes();
   }, []);
+
 
   const fetchNotes = () => {
     fetch(`${BASE_URL}/notes`)
@@ -86,16 +99,18 @@ const NotesApp = () => {
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((firebaseUser) => {
       if (firebaseUser) {
-        const user = {
+        const userObj = {
           email: firebaseUser.email,
           name: firebaseUser.displayName,
           avatar: firebaseUser.photoURL
         };
-        setUser(user);
-        localStorage.setItem('notesAppUser', JSON.stringify(user));
+        setUser(userObj);
+        localStorage.setItem('notesAppUser', JSON.stringify(userObj));
+
+        // Fetch notes right after login
+        fetchNotes();
       }
     });
-
     return () => unsubscribe();
   }, []);
 
@@ -245,7 +260,7 @@ const NotesApp = () => {
   // Login Page
   if (!user) {
     return (
-      <div className={`min-h-screen ${darkMode ? 'bg-gray-900' : 'bg-linear-to-br from-indigo-100 via-purple-50 to-pink-100'} flex items-center justify-center p-4`}>
+      <div className={`min-h-screen ${darkMode ? 'bg-gray-900' : 'bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-100'} flex items-center justify-center p-4`}>
         <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-2xl shadow-2xl p-8 max-w-md w-full`}>
           <div className="text-center mb-8">
             <div className="bg-indigo-600 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -578,7 +593,7 @@ const NotesApp = () => {
                       className="cursor-pointer relative group"
                       onClick={() => setViewingNote(note)}
                     >
-                      <img src={`${BASE_URL}${note.filePath}`} alt={note.fileName} className="w-full" />
+                      <img src={`${BASE_URL}${note.filePath}`} alt={note.fileName ?? 'Note'} className="w-full" />
                       <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all flex items-center justify-center">
                         <Eye className="w-12 h-12 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
@@ -588,7 +603,7 @@ const NotesApp = () => {
                   {/* PDF Indicator */}
                   {note.fileType === 'application/pdf' && (
                     <div 
-                      className="bg-linear-to-br from-red-50 to-orange-50 p-12 flex items-center justify-center cursor-pointer hover:from-red-100 hover:to-orange-100 transition-colors border-y"
+                      className="bg-gradient-to-br from-red-50 to-orange-50 p-12 flex items-center justify-center cursor-pointer hover:from-red-100 hover:to-orange-100 transition-colors border-y"
                       onClick={() => handleDownloadPDF(note)}
                     >
                       <div className="text-center">
@@ -604,7 +619,7 @@ const NotesApp = () => {
                   {/* DOCX Indicator */}
                   {note.fileType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' && (
                     <div 
-                      className="bg-linear-to-br from-blue-50 to-indigo-50 p-12 flex items-center justify-center cursor-pointer hover:from-blue-100 hover:to-indigo-100 transition-colors border-y"
+                      className="bg-gradient-to-br from-blue-50 to-indigo-50 p-12 flex items-center justify-center cursor-pointer hover:from-blue-100 hover:to-indigo-100 transition-colors border-y"
                       onClick={() => handleDownloadPDF(note)}
                     >
                       <div className="text-center">
@@ -667,23 +682,17 @@ const NotesApp = () => {
                       <button
                         onClick={() => handleLike(note._id)}
                         className={`flex items-center gap-2 transition-colors ${
-                          note.likedBy.includes(user.email)
+                          note.likedBy.includes(user?.email ?? '')
                             ? 'text-red-600'
                             : 'text-gray-600 hover:text-red-600'
                         }`}
                       >
                         <svg
                           className="w-6 h-6"
-                          fill={note.likedBy.includes(user.email) ? 'currentColor' : 'none'}
-                          stroke="currentColor"
                           viewBox="0 0 24 24"
+                          fill="currentColor"
                         >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="2"
-                            d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
-                          />
+                          <path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
                         </svg>
                         <span className="font-medium">{note.likes}</span>
                       </button>
