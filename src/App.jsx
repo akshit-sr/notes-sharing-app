@@ -51,7 +51,7 @@ const NotesApp = () => {
   }, []);
 
   const fetchNotes = () => {
-    fetch('http://localhost:5000/notes') // change to live server URL in production
+    fetch('https://notes-sharing-app-mww6.onrender.com/notes') // change to live server URL in production
       .then(res => res.json())
       .then(data => {
         setNotes(data);
@@ -204,21 +204,21 @@ const NotesApp = () => {
     alert('Upload failed');
   }
 
-  setUploading(false);
-};
+    setUploading(false);
+  };
 
   const handleLike = async (noteId) => {
     if (!user) return;
     
     try {
-      const res = await fetch(`http://localhost:5000/notes/${noteId}/like`, {
+      const res = await fetch(`https://notes-sharing-app-mww6.onrender.com/notes/${noteId}/like`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: user.email })
       });
 
       if (res.ok) {
-        fetchNotes(); // Refresh to show updated likes
+        fetchNotes(); // Refresh feed after like
       }
     } catch (err) {
       console.error('Like error:', err);
@@ -232,9 +232,8 @@ const NotesApp = () => {
   };
 
   const handleDownloadPDF = (note) => {
-    const fileUrl = `http://localhost:5000${note.filePath}`;
     const link = document.createElement('a');
-    link.href = fileUrl;
+    link.href = note.filePath; // <-- uses full URL
     link.download = note.fileName;
     link.target = '_blank';
     document.body.appendChild(link);
