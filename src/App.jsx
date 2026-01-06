@@ -4,6 +4,8 @@ import { auth, provider } from './firebaseConfig';
 import { signInWithPopup } from "firebase/auth";
 import { signOut } from "firebase/auth";
 
+const BASE_URL = 'https://notes-sharing-app-mww6.onrender.com';
+
 const NotesApp = () => {
   const [user, setUser] = useState(null);
   const [currentPage, setCurrentPage] = useState('feed');
@@ -47,11 +49,11 @@ const NotesApp = () => {
     setUser(savedUser);
     setDarkMode(savedDarkMode);
 
-    fetchNotes(); // fetch all notes from backend
+    fetchNotes(); // fetch all notes from BASE_URL
   }, []);
 
   const fetchNotes = () => {
-    fetch('https://notes-sharing-app-mww6.onrender.com/notes') // change to live server URL in production
+    fetch(`${BASE_URL}/notes`)
       .then(res => res.json())
       .then(data => {
         setNotes(data);
@@ -141,9 +143,9 @@ const NotesApp = () => {
     }
 
     const isImage = fileName.endsWith('.jpg') || fileName.endsWith('.jpeg');
-     // Images max 5MB
-    if (isImage && file.size > 5 * 1024 * 1024) {
-      setErrorMessage('Images must be less than 5 MB');
+     // Images max 500MB
+    if (isImage && file.size > 500 * 1024 * 1024) {
+      setErrorMessage('Images must be less than 500 MB');
       e.target.value = '';
       return;
     }
@@ -188,10 +190,7 @@ const NotesApp = () => {
   formData.append('uploadedByEmail', user.email);
 
   try {
-    const res = await fetch(
-      'https://notes-sharing-app-mww6.onrender.com/upload',
-      { method: 'POST', body: formData }
-    );
+    const res = await fetch(`${BASE_URL}/upload`, { method: 'POST', body: formData });
 
     const data = await res.json();
 
@@ -209,16 +208,18 @@ const NotesApp = () => {
 
   const handleLike = async (noteId) => {
     if (!user) return;
-    
+
     try {
-      const res = await fetch(`https://notes-sharing-app-mww6.onrender.com/notes/${noteId}/like`, {
+      const res = await fetch(`${BASE_URL}/notes/${noteId}/like`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: user.email })
       });
 
       if (res.ok) {
-        fetchNotes(); // Refresh feed after like
+        fetchNotes(); // Refresh notes to show updated likes
+      } else {
+        console.error('Like failed');
       }
     } catch (err) {
       console.error('Like error:', err);
@@ -232,8 +233,9 @@ const NotesApp = () => {
   };
 
   const handleDownloadPDF = (note) => {
+    const fileUrl = `${BASE_URL}${note.filePath}`;
     const link = document.createElement('a');
-    link.href = note.filePath; // <-- uses full URL
+    link.href = fileUrl;
     link.download = note.fileName;
     link.target = '_blank';
     document.body.appendChild(link);
