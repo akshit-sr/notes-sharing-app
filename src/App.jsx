@@ -171,24 +171,41 @@ const NotesApp = () => {
   };
 
   const handleUpload = async () => {
-    const formData = new FormData();
-    formData.append('file', uploadFile);
-    formData.append('year', year);
-    formData.append('semester', semester);
-    formData.append('subject', subject);
-    formData.append('description', description);
-    formData.append('uploadedBy', user.name);
-    formData.append('uploadedByEmail', user.email);
+  if (!uploadFile || !semester || !year || !subject) {
+    alert('Fill all required fields');
+    return;
+  }
 
-    const res = await fetch('http://localhost:5000/upload', {
-      method: 'POST',
-      body: formData
-    });
+  setUploading(true);
+
+  const formData = new FormData();
+  formData.append('file', uploadFile);
+  formData.append('year', year);
+  formData.append('semester', semester);
+  formData.append('subject', subject);
+  formData.append('description', description);
+  formData.append('uploadedBy', user.name);
+  formData.append('uploadedByEmail', user.email);
+
+  try {
+    const res = await fetch(
+      'https://notes-sharing-app-mww6.onrender.com/upload',
+      { method: 'POST', body: formData }
+    );
 
     const data = await res.json();
-    setNotes(prev => [data, ...prev]);
-    setCurrentPage('feed');
-  };
+
+    if (data.success) {
+      setNotes(prev => [data.note, ...prev]);
+      setFilteredNotes(prev => [data.note, ...prev]);
+      setCurrentPage('feed');
+    }
+  } catch (err) {
+    alert('Upload failed');
+  }
+
+  setUploading(false);
+};
 
   const handleLike = async (noteId) => {
     if (!user) return;
