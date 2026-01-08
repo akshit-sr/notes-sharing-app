@@ -137,6 +137,38 @@ app.post('/notes/:id/like', async (req, res) => {
   }
 });
 
+// Delete API
+app.delete('/notes/:id', async (req, res) => {
+  const noteId = req.params.id;
+  const { email } = req.body;
+
+  if (!email) return res.status(400).json({ error: 'User email required' });
+
+  try {
+    const note = await Note.findById(noteId);
+    if (!note) return res.status(404).json({ error: 'Note not found' });
+
+    // Check if user owns this note
+    if (note.uploadedByEmail !== email) {
+      return res.status(403).json({ error: 'You can only delete your own uploads' });
+    }
+
+    // Delete file from disk
+    const filePath = path.join(__dirname, note.filePath);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    // Delete from database
+    await Note.findByIdAndDelete(noteId);
+
+    res.json({ success: true, message: 'Note deleted successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete note' });
+  }
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

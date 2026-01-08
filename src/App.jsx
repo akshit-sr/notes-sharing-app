@@ -16,8 +16,7 @@ const NotesApp = () => {
   const [filterSubject, setFilterSubject] = useState('');
 
   // Upload form state
-  const [uploadFile, setUploadFile] = useState(null);
-  const [uploadPreview, setUploadPreview] = useState(null);
+  const [uploadFiles, setUploadFiles] = useState([]);
   const [year, setYear] = useState('');
   const [semester, setSemester] = useState('');
   const [subject, setSubject] = useState('');
@@ -141,84 +140,67 @@ const NotesApp = () => {
   };
 
   const handleFileChange = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
 
-    console.log('File selected:', file.name, 'Type:', file.type, 'Size:', file.size);
-
-    // Validate file type - be more lenient with validation
-    const fileName = file.name.toLowerCase();
+    const validFiles = [];
     const validExtensions = ['.jpg', '.jpeg', '.pdf', '.docx'];
-    const hasValidExtension = validExtensions.some(ext => fileName.endsWith(ext));
-    
-    if (!hasValidExtension) {
-      setErrorMessage('Only JPG, JPEG, PDF or DOCX files are currently accepted!');
-      e.target.value = '';
-      return;
+
+    for (const file of files) {
+      const fileName = file.name.toLowerCase();
+      const hasValidExtension = validExtensions.some(ext => fileName.endsWith(ext));
+      
+      if (!hasValidExtension) {
+        setErrorMessage('Only JPG, JPEG, PDF or DOCX files are accepted!');
+        continue;
+      }
+
+      if (file.size > 500 * 1024 * 1024) {
+        setErrorMessage(`${file.name} is too large. Max 500MB per file.`);
+        continue;
+      }
+
+      validFiles.push(file);
     }
 
-    const isImage = fileName.endsWith('.jpg') || fileName.endsWith('.jpeg');
-     // Images max 500MB
-    if (isImage && file.size > 500 * 1024 * 1024) {
-      setErrorMessage('Images must be less than 500 MB');
-      e.target.value = '';
-      return;
-    }
-
-    // Other files max 500MB
-    if (!isImage && file.size > 500 * 1024 * 1024) {
-      setErrorMessage('Files must be less than 500 MB');
-      e.target.value = '';
-      return;
-    }
-
-    setUploadFile(file);
-    setErrorMessage(''); // Clear any previous errors
-
-    // Create preview for images (jpg, jpeg)
-    
-    if (isImage) {
-      const reader = new FileReader();
-      reader.onloadend = () => setUploadPreview(reader.result); // <-- CHANGED/FIXED: Preview for images
-      reader.onerror = () => setUploadPreview(null);
-      reader.readAsDataURL(file);
-    } else {
-      setUploadPreview(null);
-    }
+    setUploadFiles(validFiles);
+    setErrorMessage('');
   };
 
   const handleUpload = async () => {
-  if (!uploadFile || !semester || !year || !subject) {
-    alert('Fill all required fields');
-    return;
-  }
-
-  setUploading(true);
-
-  const formData = new FormData();
-  formData.append('file', uploadFile);
-  formData.append('year', year);
-  formData.append('semester', semester);
-  formData.append('subject', subject);
-  formData.append('description', description);
-  formData.append('uploadedBy', user.name);
-  formData.append('uploadedByEmail', user.email);
-
-  try {
-    const res = await fetch(`${BASE_URL}/upload`, { method: 'POST', body: formData });
-
-    const data = await res.json();
-
-    if (data.success) {
-      setNotes(prev => [data.note, ...prev]);
-      setFilteredNotes(prev => [data.note, ...prev]);
-      setCurrentPage('feed');
+    if (uploadFiles.length === 0 || !semester || !year || !subject) {
+      alert('Fill all required fields and select at least one file');
+      return;
     }
-  } catch (err) {
-    alert('Upload failed');
-  }
+
+    setUploading(true);
+
+    for (const file of uploadFiles) {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('year', year);
+      formData.append('semester', semester);
+      formData.append('subject', subject);
+      formData.append('description', description);
+      formData.append('uploadedBy', user.name);
+      formData.append('uploadedByEmail', user.email);
+
+      try {
+        const res = await fetch(`${BASE_URL}/upload`, { method: 'POST', body: formData });
+        const data = await res.json();
+
+        if (data.success) {
+          setNotes(prev => [data.note, ...prev]);
+          setFilteredNotes(prev => [data.note, ...prev]);
+        }
+      } catch (err) {
+        alert(`Upload failed for ${file.name}`);
+      }
+    }
 
     setUploading(false);
+    setUploadFiles([]);
+    setCurrentPage('feed');
   };
 
   const handleLike = async (noteId) => {
@@ -240,16 +222,46 @@ const NotesApp = () => {
     setFilterSubject('');
   };
 
-  const handleDownloadPDF = (note) => {
-    const fileUrl = `${BASE_URL}${note.filePath}`;
-    const link = document.createElement('a');
-    link.href = fileUrl;
-    link.download = note.fileName;
-    link.target = '_blank';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleDownloadPDF = async (note) => {
+    try {
+      const fileUrl = `${BASE_URL}${note.filePath}`;
+      const response = await fetch(fileUrl);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = note.fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Download failed:', error);
+      alert('Failed to download file. Please try again.');
+    }
   };
+
+  const handleDelete = async (noteId) => {
+  if (!window.confirm('Are you sure you want to delete this note?')) return;
+
+  try {
+    const res = await fetch(`${BASE_URL}/notes/${noteId}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: user.email })
+    });
+
+    if (res.ok) {
+      setNotes(prev => prev.filter(n => n._id !== noteId));
+      setFilteredNotes(prev => prev.filter(n => n._id !== noteId));
+    } else {
+      alert('Failed to delete. You can only delete your own uploads.');
+    }
+  } catch (err) {
+    console.error(err);
+    alert('Delete failed');
+  }
+};
 
   const toggleDarkMode = () => {
     const newMode = !darkMode;
@@ -319,7 +331,7 @@ const NotesApp = () => {
       )}
 
       {/* View Modal */}
-      {viewingNote && viewingNote.fileType !== 'application/pdf' && (
+      {viewingNote && viewingNote.fileType && viewingNote.fileType.startsWith('image/') && (
         <div className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-2 sm:p-4">
           <div className="bg-white rounded-xl max-w-6xl w-full max-h-[90vh] flex flex-col">
             <div className="p-3 sm:p-4 border-b flex items-center justify-between">
@@ -335,11 +347,22 @@ const NotesApp = () => {
               </button>
             </div>
             
-            <div className="flex-1 overflow-auto p-2 sm:p-4">
-              <img
-                src={viewingNote.fileData}
-                alt={viewingNote.fileName}
-                className="max-w-full h-auto mx-auto rounded-lg"
+            <div className="flex-1 overflow-auto p-2 sm:p-4 bg-gray-100">
+              <img 
+                src={`${BASE_URL}${viewingNote.filePath}`}
+                alt={viewingNote.fileName} 
+                className="max-w-full h-auto mx-auto"
+                crossOrigin="anonymous"
+                onError={(e) => {
+                  console.error('Modal image failed to load:', `${BASE_URL}${viewingNote.filePath}`);
+                  e.target.style.display = 'none';
+                  e.target.parentElement.innerHTML = `
+                    <div class="text-center p-8">
+                      <p class="text-red-600 font-semibold">Failed to load image</p>
+                      <a href="${BASE_URL}${viewingNote.filePath}" target="_blank" class="text-blue-600 underline mt-4 inline-block">Open in new tab</a>
+                    </div>
+                  `;
+                }}
               />
             </div>
           </div>
@@ -398,7 +421,7 @@ const NotesApp = () => {
               {/* File Upload */}
               <div>
                 <label className={`block text-sm font-medium ${darkMode ? 'text-gray-300' : 'text-gray-700'} mb-2`}>
-                  Upload File (JPG, JPEG, PDF, DOCX - Max 500MB)
+                  Upload Files (JPG, JPEG, PDF, DOCX - Max 500MB each)
                 </label>
                 <div className={`border-2 border-dashed ${darkMode ? 'border-gray-600 hover:border-indigo-500' : 'border-gray-300 hover:border-indigo-400'} rounded-lg p-8 text-center transition-colors`}>
                   <input
@@ -407,16 +430,20 @@ const NotesApp = () => {
                     onChange={handleFileChange}
                     className="hidden"
                     id="file-upload"
+                    multiple
                   />
                   <label htmlFor="file-upload" className="cursor-pointer">
-                    {uploadPreview ? (
-                      <img src={uploadPreview} alt="Preview" className="max-h-48 mx-auto mb-4 rounded" />
-                    ) : (
-                      <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                    )}
+                    <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                     <p className={`${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                      {uploadFile ? uploadFile.name : 'Click to upload or drag and drop'}
+                      {uploadFiles.length > 0 ? `${uploadFiles.length} file(s) selected` : 'Click to upload or drag and drop (multiple files)'}
                     </p>
+                    {uploadFiles.length > 0 && (
+                      <div className="mt-4 text-left max-h-32 overflow-y-auto">
+                        {uploadFiles.map((file, idx) => (
+                          <p key={idx} className="text-sm text-gray-600">• {file.name}</p>
+                        ))}
+                      </div>
+                    )}
                   </label>
                 </div>
               </div>
@@ -593,7 +620,26 @@ const NotesApp = () => {
                       className="cursor-pointer relative group"
                       onClick={() => setViewingNote(note)}
                     >
-                      <img src={`${BASE_URL}${note.filePath}`} alt={note.fileName ?? 'Note'} className="w-full" />
+                      <img 
+                        src={`${BASE_URL}${note.filePath}`}
+                        alt={note.fileName ?? 'Note'} 
+                        className="w-full"
+                        crossOrigin="anonymous"
+                        onLoad={() => console.log('Image loaded successfully:', note.filePath)}
+                        onError={(e) => {
+                          console.error('Image failed to load:', `${BASE_URL}${note.filePath}`);
+                          console.error('Full note object:', note);
+                          e.target.style.display = 'none';
+                          e.target.parentElement.innerHTML = `
+                            <div class="bg-red-50 p-8 text-center">
+                              <p class="text-red-600 font-semibold">Image failed to load</p>
+                              <p class="text-sm text-gray-600 mt-2">${note.fileName}</p>
+                              <p class="text-xs text-gray-500 mt-1">Path: ${note.filePath}</p>
+                              <a href="${BASE_URL}${note.filePath}" target="_blank" class="text-blue-600 underline text-sm mt-2 inline-block">Try opening directly</a>
+                            </div>
+                          `;
+                        }}
+                      />
                       <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all flex items-center justify-center">
                         <Eye className="w-12 h-12 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
@@ -672,13 +718,14 @@ const NotesApp = () => {
                         </button>
                       ) : (
                         <button
-                          onClick={() => setViewingNote(note)}
+                          onClick={() => handleDownloadPDF(note)}
                           className="flex items-center gap-2 text-indigo-600 hover:text-indigo-700 transition-colors font-medium"
                         >
-                          <Eye className="w-5 h-5" />
-                          View
+                          <Download className="w-5 h-5" />
+                          Download Image
                         </button>
                       )}
+                      
                       <button
                         onClick={() => handleLike(note._id)}
                         className={`flex items-center gap-2 transition-colors ${
@@ -696,6 +743,16 @@ const NotesApp = () => {
                         </svg>
                         <span className="font-medium">{note.likes}</span>
                       </button>
+
+                      {user?.email === note.uploadedByEmail && (
+                        <button
+                          onClick={() => handleDelete(note._id)}
+                          className="flex items-center gap-2 text-red-600 hover:text-red-700 transition-colors font-medium ml-auto"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                          Delete
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
