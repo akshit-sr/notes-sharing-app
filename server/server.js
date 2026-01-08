@@ -8,40 +8,77 @@ require('dotenv').config();
 const Note = require('./models/Note');
 const fs = require('fs');
 
-if (!fs.existsSync('uploads')) fs.mkdirSync('uploads');
+// Create uploads directory if it doesn't exist
+if (!fs.existsSync('uploads')) {
+  fs.mkdirSync('uploads');
+}
 
 const app = express();
 
-// Allow cross-origin requests from your frontend
+// IMPORTANT: CORS must come BEFORE routes
 app.use(cors({
-  origin: ['https://notes-sharing-app-260f8.web.app'], // <-- your Firebase frontend URL
+  origin: ['https://notes-sharing-app-260f8.web.app', 'http://localhost:3000', 'http://localhost:5173'],
   credentials: true
 }));
+
 app.use(express.json());
 
-// Serve uploaded files
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// IMPORTANT: Serve static files with proper headers
+app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
+  setHeaders: (res, filePath) => {
+    // Set proper content type based on file extension
+    if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
+      res.setHeader('Content-Type', 'image/jpeg');
+    } else if (filePath.endsWith('.png')) {
+      res.setHeader('Content-Type', 'image/png');
+    } else if (filePath.endsWith('.pdf')) {
+      res.setHeader('Content-Type', 'application/pdf');
+    } else if (filePath.endsWith('.docx')) {
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    }
+    // Allow images to be displayed from any origin
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+}));
 
 // MongoDB Atlas connection
 mongoose.connect(process.env.MONGO_URI, { dbName: "notesApp" })
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.error(err));
 
-// Multer storage (disk)
+// Multer storage configuration
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, 'uploads'),
-  filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
+  destination: (req, file, cb) => {
+    cb(null, 'uploads');
+  },
+  filename: (req, file, cb) => {
+    // Keep original extension
+    const ext = path.extname(file.originalname);
+    const nameWithoutExt = path.basename(file.originalname, ext);
+    cb(null, Date.now() + '-' + nameWithoutExt + ext);
+  }
 });
-const upload = multer({ storage, limits: { fileSize: 500 * 1024 * 1024 } }); // 500MB
+
+const upload = multer({ 
+  storage, 
+  limits: { fileSize: 500 * 1024 * 1024 } // 500MB
+});
+
+// Test route to verify server is working
+app.get('/', (req, res) => {
+  res.json({ message: 'Notes API is running' });
+});
 
 // Upload API
 app.post('/upload', upload.single('file'), async (req, res) => {
   try {
-    const fileURL = `https://notes-sharing-app-mww6.onrender.com/uploads/${req.file.filename}`;
+    console.log('File uploaded:', req.file);
+    
+    const fileURL = `/uploads/${req.file.filename}`;
 
     const note = await Note.create({
       fileName: req.file.originalname,
-      filePath: fileURL, // <-- full URL for frontend
+      filePath: fileURL,
       fileType: req.file.mimetype,
       fileSize: req.file.size,
       year: Number(req.body.year),
@@ -52,10 +89,11 @@ app.post('/upload', upload.single('file'), async (req, res) => {
       uploadedByEmail: req.body.uploadedByEmail
     });
 
+    console.log('Note created in DB:', note);
     res.json({ success: true, note });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, error: 'Upload failed' });
+    console.error('Upload error:', err);
+    res.status(500).json({ success: false, error: 'Upload failed', details: err.message });
   }
 });
 
@@ -63,8 +101,10 @@ app.post('/upload', upload.single('file'), async (req, res) => {
 app.get('/notes', async (req, res) => {
   try {
     const notes = await Note.find().sort({ uploadedAt: -1 });
+    console.log(`Fetched ${notes.length} notes`);
     res.json(notes);
   } catch (err) {
+    console.error('Fetch notes error:', err);
     res.status(500).json({ error: 'Failed to fetch notes' });
   }
 });
@@ -85,7 +125,6 @@ app.post('/notes/:id/like', async (req, res) => {
       note.likedBy.push(email);
       await note.save();
     } else {
-      // Optional: allow unlike
       note.likes -= 1;
       note.likedBy = note.likedBy.filter(e => e !== email);
       await note.save();
@@ -93,10 +132,13 @@ app.post('/notes/:id/like', async (req, res) => {
 
     res.json({ success: true, likes: note.likes, likedBy: note.likedBy });
   } catch (err) {
-    console.error(err);
+    console.error('Like error:', err);
     res.status(500).json({ error: 'Failed to like note' });
   }
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Static files served from: ${path.join(__dirname, 'uploads')}`);
+});
