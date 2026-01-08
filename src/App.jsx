@@ -1,10 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, LogOut, Home, PlusCircle, User, Filter, X, Eye, Download, FileText, Moon, Sun } from 'lucide-react';
+import { Upload, LogOut, Home, PlusCircle, Filter, X, Download, FileText, Moon, Sun, Trash2 } from 'lucide-react';
 import { auth, provider } from './firebaseConfig';
 import { signInWithPopup } from "firebase/auth";
 import { signOut } from "firebase/auth";
 
 const BASE_URL = 'https://notes-sharing-app-mww6.onrender.com';
+
+const getFileUrl = (path) => {
+  if (!path) return "";
+  return path.startsWith("http")
+    ? path
+    : `${BASE_URL}${path}`;
+};
 
 const NotesApp = () => {
   const [user, setUser] = useState(null);
@@ -14,6 +21,7 @@ const NotesApp = () => {
   const [filterSemester, setFilterSemester] = useState('');
   const [filterYear, setFilterYear] = useState('');
   const [filterSubject, setFilterSubject] = useState('');
+  const [imageError, setImageError] = useState(false);
 
   // Upload form state
   const [uploadFiles, setUploadFiles] = useState([]);
@@ -84,13 +92,19 @@ const NotesApp = () => {
   useEffect(() => {
     let filtered = notes;
     if (filterSemester) {
-      filtered = filtered.filter(n => n.semester === filterSemester);
+      filtered = filtered.filter(
+        n => n.semester === Number(filterSemester)
+      );
     }
     if (filterYear) {
-      filtered = filtered.filter(n => n.year === filterYear);
+      filtered = filtered.filter(
+        n => n.year === Number(filterYear)
+      );
     }
     if (filterSubject) {
-      filtered = filtered.filter(n => n.subject.toLowerCase().includes(filterSubject.toLowerCase()));
+      filtered = filtered.filter(
+        n => n.subject.toLowerCase().includes(filterSubject.toLowerCase())
+      );
     }
     setFilteredNotes(filtered);
   }, [filterSemester, filterYear, filterSubject, notes]);
@@ -224,8 +238,7 @@ const NotesApp = () => {
 
   const handleDownloadPDF = async (note) => {
     try {
-      const fileUrl = `${BASE_URL}${note.filePath}`;
-      const response = await fetch(fileUrl);
+      const response = await fetch(getFileUrl(note.filePath));
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -237,7 +250,7 @@ const NotesApp = () => {
       window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Download failed:', error);
-      alert('Failed to download file. Please try again.');
+      alert('Failed to download file.');
     }
   };
 
@@ -340,7 +353,9 @@ const NotesApp = () => {
                 <p className="text-xs sm:text-sm text-gray-600 truncate">{viewingNote.subject} - Semester {viewingNote.semester}</p>
               </div>
               <button
-                onClick={() => setViewingNote(null)}
+                onClick={() => {
+                  setViewingNote(null);
+                  setImageError(false);}}
                 className="text-gray-600 hover:text-gray-800 p-2 rounded-lg hover:bg-gray-100 shrink-0"
               >
                 <X className="w-5 h-5 sm:w-6 sm:h-6" />
@@ -348,22 +363,28 @@ const NotesApp = () => {
             </div>
             
             <div className="flex-1 overflow-auto p-2 sm:p-4 bg-gray-100">
-              <img 
-                src={`${BASE_URL}${viewingNote.filePath}`}
-                alt={viewingNote.fileName} 
-                className="max-w-full h-auto mx-auto"
-                crossOrigin="anonymous"
-                onError={(e) => {
-                  console.error('Modal image failed to load:', `${BASE_URL}${viewingNote.filePath}`);
-                  e.target.style.display = 'none';
-                  e.target.parentElement.innerHTML = `
-                    <div class="text-center p-8">
-                      <p class="text-red-600 font-semibold">Failed to load image</p>
-                      <a href="${BASE_URL}${viewingNote.filePath}" target="_blank" class="text-blue-600 underline mt-4 inline-block">Open in new tab</a>
-                    </div>
-                  `;
-                }}
-              />
+              {!imageError ? (
+                <img
+                  src={getFileUrl(viewingNote.filePath)}
+                  alt={viewingNote.fileName}
+                  className="max-w-full h-auto mx-auto"
+                  onError={() => {
+                    setImageError(true);
+                  }}
+                />
+              ) : (
+                <div className="text-center p-8">
+                  <p className="text-red-600 font-semibold">Failed to load image</p>
+                  <a
+                    href={getFileUrl(viewingNote.filePath)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 underline mt-4 inline-block"
+                  >
+                    Open in new tab
+                  </a>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -616,33 +637,20 @@ const NotesApp = () => {
 
                   {/* Image Preview */}
                   {note.fileType && note.fileType.startsWith('image/') && (
-                    <div 
-                      className="cursor-pointer relative group"
-                      onClick={() => setViewingNote(note)}
-                    >
+                    <div className="bg-gray-100 p-6 flex flex-col items-center justify-center border-y">
                       <img 
-                        src={`${BASE_URL}${note.filePath}`}
-                        alt={note.fileName ?? 'Note'} 
-                        className="w-full"
-                        crossOrigin="anonymous"
-                        onLoad={() => console.log('Image loaded successfully:', note.filePath)}
-                        onError={(e) => {
-                          console.error('Image failed to load:', `${BASE_URL}${note.filePath}`);
-                          console.error('Full note object:', note);
-                          e.target.style.display = 'none';
-                          e.target.parentElement.innerHTML = `
-                            <div class="bg-red-50 p-8 text-center">
-                              <p class="text-red-600 font-semibold">Image failed to load</p>
-                              <p class="text-sm text-gray-600 mt-2">${note.fileName}</p>
-                              <p class="text-xs text-gray-500 mt-1">Path: ${note.filePath}</p>
-                              <a href="${BASE_URL}${note.filePath}" target="_blank" class="text-blue-600 underline text-sm mt-2 inline-block">Try opening directly</a>
-                            </div>
-                          `;
-                        }}
+                        src={getFileUrl(note.filePath)}
+                        alt={note.fileName}
+                        className="max-h-64 object-contain mb-4"
+                        onError={(e) => (e.target.style.display = 'none')}
                       />
-                      <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all flex items-center justify-center">
-                        <Eye className="w-12 h-12 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </div>
+                      <button
+                        onClick={() => handleDownloadPDF(note)}
+                        className="flex items-center gap-2 text-indigo-600 hover:text-indigo-700 font-medium"
+                      >
+                        <Download className="w-5 h-5" />
+                        Download Image
+                      </button>
                     </div>
                   )}
 

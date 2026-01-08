@@ -36,8 +36,6 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
     } else if (filePath.endsWith('.docx')) {
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     }
-    // Allow images to be displayed from any origin
-    res.setHeader('Access-Control-Allow-Origin', '*');
   }
 }));
 
@@ -70,27 +68,28 @@ app.get('/', (req, res) => {
 });
 
 // Upload API
-app.post('/upload', upload.single('file'), async (req, res) => {
+app.post('/upload', upload.array('file'), async (req, res) => {
   try {
-    console.log('File uploaded:', req.file);
-    
-    const fileURL = `/uploads/${req.file.filename}`;
+    const createdNotes = [];
 
-    const note = await Note.create({
-      fileName: req.file.originalname,
-      filePath: fileURL,
-      fileType: req.file.mimetype,
-      fileSize: req.file.size,
-      year: Number(req.body.year),
-      semester: Number(req.body.semester),
-      subject: req.body.subject,
-      description: req.body.description,
-      uploadedBy: req.body.uploadedBy,
-      uploadedByEmail: req.body.uploadedByEmail
-    });
+    for (const file of req.files) {
+      const fileURL = `${req.protocol}://${req.get('host')}/uploads/${file.filename}`;
+      const note = await Note.create({
+        fileName: file.originalname,
+        filePath: fileURL,
+        fileType: file.mimetype,
+        fileSize: file.size,
+        year: Number(req.body.year),
+        semester: Number(req.body.semester),
+        subject: req.body.subject,
+        description: req.body.description,
+        uploadedBy: req.body.uploadedBy,
+        uploadedByEmail: req.body.uploadedByEmail
+      });
+      createdNotes.push(note);
+    }
 
-    console.log('Note created in DB:', note);
-    res.json({ success: true, note });
+    res.json({ success: true, notes: createdNotes });
   } catch (err) {
     console.error('Upload error:', err);
     res.status(500).json({ success: false, error: 'Upload failed', details: err.message });
@@ -154,7 +153,8 @@ app.delete('/notes/:id', async (req, res) => {
     }
 
     // Delete file from disk
-    const filePath = path.join(__dirname, note.filePath);
+    const filename = path.basename(new URL(note.filePath).pathname);
+    const filePath = path.join(__dirname, 'uploads', filename);
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
