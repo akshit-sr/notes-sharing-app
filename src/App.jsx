@@ -189,32 +189,38 @@ const NotesApp = () => {
 
     setUploading(true);
 
-    for (const file of uploadFiles) {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('year', year);
-      formData.append('semester', semester);
-      formData.append('subject', subject);
-      formData.append('description', description);
-      formData.append('uploadedBy', user.name);
-      formData.append('uploadedByEmail', user.email);
+    const formData = new FormData();
+    uploadFiles.forEach(file => formData.append('file', file));
+    formData.append('year', year);
+    formData.append('semester', semester);
+    formData.append('subject', subject);
+    formData.append('description', description);
+    formData.append('uploadedBy', user.name);
+    formData.append('uploadedByEmail', user.email);
 
-      try {
-        const res = await fetch(`${BASE_URL}/upload`, { method: 'POST', body: formData });
-        const data = await res.json();
+    try {
+      const res = await fetch(`${BASE_URL}/upload`, {
+        method: 'POST',
+        body: formData
+      });
 
-        if (data.success) {
-          setNotes(prev => [data.note, ...prev]);
-          setFilteredNotes(prev => [data.note, ...prev]);
-        }
-      } catch (err) {
-        alert(`Upload failed for ${file.name}`);
+      const data = await res.json();
+
+      if (data.success && data.notes) {
+        // Prepend all newly uploaded notes to feed
+        setNotes(prev => [...data.notes, ...prev]);
+        setFilteredNotes(prev => [...data.notes, ...prev]);
+      } else {
+        alert('Upload failed. Please try again.');
       }
+    } catch (err) {
+      console.error(err);
+      alert('Upload failed. Please try again.');
+    } finally {
+      setUploading(false);
+      setUploadFiles([]);
+      setCurrentPage('feed');
     }
-
-    setUploading(false);
-    setUploadFiles([]);
-    setCurrentPage('feed');
   };
 
   const handleLike = async (noteId) => {
