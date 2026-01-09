@@ -89,6 +89,22 @@ app.get('/notes', async (req, res) => {
   }
 });
 
+// Download a note file
+app.get('/notes/:id/download', async (req, res) => {
+  try {
+    const note = await Note.findById(req.params.id);
+    if (!note) return res.status(404).json({ error: 'Note not found' });
+
+    const filePath = path.join(__dirname, note.filePath);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+
+    res.download(filePath, note.fileName); // triggers browser download
+  } catch (err) {
+    console.error('Download error:', err);
+    res.status(500).json({ error: 'Failed to download file' });
+  }
+});
+
 // Like a note
 app.post('/notes/:id/like', async (req, res) => {
   const noteId = req.params.id;

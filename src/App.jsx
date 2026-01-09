@@ -237,9 +237,12 @@ const NotesApp = () => {
 
   const handleDownloadPDF = async (note) => {
     try {
-      const response = await fetch(getFileUrl(note.filePath));
+      const response = await fetch(`${BASE_URL}/notes/${note._id}/download`);
+      if (!response.ok) throw new Error('Download failed');
+
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
+
       const link = document.createElement('a');
       link.href = url;
       link.download = note.fileName;
