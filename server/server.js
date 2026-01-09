@@ -3,14 +3,18 @@ const multer = require('multer');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const path = require('path');
+const cloudinary = require('cloudinary').v2;
+const fs = require('fs');
 require('dotenv').config();
 
 const Note = require('./models/Note');
-const fs = require('fs');
 
-// Create uploads directory if it doesn't exist
-const UPLOAD_DIR = path.join(__dirname, 'uploads');
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
 
 const app = express();
 
@@ -22,39 +26,25 @@ app.use(cors({
 
 app.use(express.json());
 
-// Serve static files
-app.use('/uploads', express.static(UPLOAD_DIR));
-
 // MongoDB connection
 mongoose.connect(process.env.MONGO_URI, { dbName: "notesApp" })
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.error(err));
 
-// Multer storage configuration
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const nameWithoutExt = path.basename(file.originalname, ext);
-    cb(null, `${Date.now()}-${nameWithoutExt}${ext}`);
-  }
-});
-
+// Multer configuration - store files temporarily in memory
 const upload = multer({ 
-  storage,
-  limits: { fileSize: 500 * 1024 * 1024 } // 500MB per file
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024 } // 100MB per file (Cloudinary free tier limit)
 });
 
 // Test route
 app.get('/', (req, res) => res.json({ message: 'Notes API is running' }));
 
-// Upload endpoint
+// Upload endpoint with Cloudinary
 app.post('/upload', upload.array('file'), async (req, res) => {
   try {
     console.log('=== UPLOAD DEBUG ===');
     console.log('Files received:', req.files?.length);
-    console.log('Upload directory:', UPLOAD_DIR);
-    console.log('Body:', req.body);
     
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ success: false, error: 'No files uploaded' });
@@ -63,15 +53,35 @@ app.post('/upload', upload.array('file'), async (req, res) => {
     const createdNotes = [];
 
     for (const file of req.files) {
-      console.log('Processing file:', file.filename);
-      console.log('File saved to:', file.path);
+      console.log('Processing file:', file.originalname);
       
-      // Store relative path WITHOUT leading slash
-      const filePath = `uploads/${file.filename}`;
-      
+      // Upload to Cloudinary
+      const uploadResult = await new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          {
+            resource_type: 'auto', // Automatically detect file type
+            folder: 'notes-app', // Organize files in a folder
+            public_id: `${Date.now()}-${path.parse(file.originalname).name}`, // Unique filename
+            use_filename: true,
+            unique_filename: false
+          },
+          (error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+          }
+        );
+        
+        // Pipe the buffer to Cloudinary
+        uploadStream.end(file.buffer);
+      });
+
+      console.log('Uploaded to Cloudinary:', uploadResult.secure_url);
+
+      // Save note to database with Cloudinary URL
       const note = await Note.create({
         fileName: file.originalname,
-        filePath, // Should be: uploads/filename.ext (no leading slash)
+        filePath: uploadResult.secure_url, // Store Cloudinary URL
+        cloudinaryPublicId: uploadResult.public_id, // Store for deletion
         fileType: file.mimetype,
         fileSize: file.size,
         year: Number(req.body.year),
@@ -82,7 +92,6 @@ app.post('/upload', upload.array('file'), async (req, res) => {
         uploadedByEmail: req.body.uploadedByEmail
       });
       
-      console.log('Note created with filePath:', note.filePath);
       createdNotes.push(note);
     }
 
@@ -105,30 +114,19 @@ app.get('/notes', async (req, res) => {
   }
 });
 
-// Download a note file
+// Download a note file from Cloudinary
 app.get('/notes/:id/download', async (req, res) => {
   try {
     const note = await Note.findById(req.params.id);
     if (!note) return res.status(404).json({ error: 'Note not found' });
 
-    // Remove leading slash if present
-    let cleanPath = note.filePath.startsWith('/') ? note.filePath.substring(1) : note.filePath;
-    const filePath = path.join(__dirname, cleanPath);
+    console.log('Redirecting to Cloudinary URL:', note.filePath);
     
-    console.log('Downloading from:', filePath);
+    // Cloudinary URLs support download via fl_attachment flag
+    const downloadUrl = note.filePath.replace('/upload/', '/upload/fl_attachment/');
     
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'File not found on server' });
-    }
-
-    res.download(filePath, note.fileName, (err) => {
-      if (err) {
-        console.error('Download stream error:', err);
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Failed to download file' });
-        }
-      }
-    });
+    // Redirect to Cloudinary's download URL
+    res.redirect(downloadUrl);
   } catch (err) {
     console.error('Download error:', err);
     res.status(500).json({ error: 'Failed to download file', details: err.message });
@@ -171,14 +169,18 @@ app.delete('/notes/:id', async (req, res) => {
     const note = await Note.findById(noteId);
     if (!note) return res.status(404).json({ error: 'Note not found' });
 
-    if (note.uploadedByEmail !== email) return res.status(403).json({ error: 'You can only delete your own uploads' });
+    if (note.uploadedByEmail !== email) {
+      return res.status(403).json({ error: 'You can only delete your own uploads' });
+    }
 
-    const filePath = path.join(__dirname, note.filePath);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-      console.log(`Deleted file: ${filePath}`);
-    } else {
-      console.warn(`File not found: ${filePath}`);
+    // Delete from Cloudinary if cloudinaryPublicId exists
+    if (note.cloudinaryPublicId) {
+      try {
+        await cloudinary.uploader.destroy(note.cloudinaryPublicId, { resource_type: 'raw' });
+        console.log(`Deleted from Cloudinary: ${note.cloudinaryPublicId}`);
+      } catch (cloudError) {
+        console.warn('Cloudinary deletion warning:', cloudError.message);
+      }
     }
 
     await Note.findByIdAndDelete(noteId);

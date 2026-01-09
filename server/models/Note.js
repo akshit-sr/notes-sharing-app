@@ -13,7 +13,8 @@ const noteSchema = new mongoose.Schema({
   uploadedByEmail: { type: String, default: '' },
   uploadedAt: { type: Date, default: Date.now },
   likes: { type: Number, default: 0 },
-  likedBy: { type: [String], default: [] }
+  likedBy: { type: [String], default: [] },
+  cloudinaryPublicId: { type: String }
 });
 
 module.exports = mongoose.model('Note', noteSchema);
