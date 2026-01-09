@@ -10,11 +10,24 @@ require('dotenv').config();
 const Note = require('./models/Note');
 
 // Configure Cloudinary
+console.log('=== CLOUDINARY CONFIG DEBUG ===');
+console.log('Cloud Name:', process.env.CLOUDINARY_CLOUD_NAME ? 'SET' : 'MISSING');
+console.log('API Key:', process.env.CLOUDINARY_API_KEY ? 'SET' : 'MISSING');
+console.log('API Secret:', process.env.CLOUDINARY_API_SECRET ? 'SET' : 'MISSING');
+
+if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+  console.error('ERROR: Cloudinary credentials are missing!');
+  console.error('Please set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET in your environment variables');
+}
+
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
+
+console.log('Cloudinary configured successfully');
+console.log('===============================');
 
 const app = express();
 
@@ -59,7 +72,7 @@ app.post('/upload', upload.array('file'), async (req, res) => {
       const uploadResult = await new Promise((resolve, reject) => {
         const uploadStream = cloudinary.uploader.upload_stream(
           {
-            resource_type: 'auto', // Automatically detect file type
+            resource_type: 'raw', // Use 'raw' for PDFs and documents
             folder: 'notes-app', // Organize files in a folder
             public_id: `${Date.now()}-${path.parse(file.originalname).name}`, // Unique filename
             use_filename: true,
@@ -120,10 +133,22 @@ app.get('/notes/:id/download', async (req, res) => {
     const note = await Note.findById(req.params.id);
     if (!note) return res.status(404).json({ error: 'Note not found' });
 
-    console.log('Redirecting to Cloudinary URL:', note.filePath);
+    console.log('Original Cloudinary URL:', note.filePath);
     
-    // Cloudinary URLs support download via fl_attachment flag
-    const downloadUrl = note.filePath.replace('/upload/', '/upload/fl_attachment/');
+    // For 'raw' resource type, the URL structure is different
+    // Change from: /image/upload/ to /raw/upload/fl_attachment/
+    let downloadUrl = note.filePath;
+    
+    if (downloadUrl.includes('/image/upload/')) {
+      downloadUrl = downloadUrl.replace('/image/upload/', '/raw/upload/fl_attachment/');
+    } else if (downloadUrl.includes('/raw/upload/')) {
+      downloadUrl = downloadUrl.replace('/raw/upload/', '/raw/upload/fl_attachment/');
+    } else {
+      // If structure is different, add fl_attachment flag
+      downloadUrl = downloadUrl.replace('/upload/', '/upload/fl_attachment/');
+    }
+    
+    console.log('Download URL:', downloadUrl);
     
     // Redirect to Cloudinary's download URL
     res.redirect(downloadUrl);
