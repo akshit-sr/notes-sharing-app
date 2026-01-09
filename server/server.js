@@ -51,14 +51,27 @@ app.get('/', (req, res) => res.json({ message: 'Notes API is running' }));
 // Upload endpoint
 app.post('/upload', upload.array('file'), async (req, res) => {
   try {
+    console.log('=== UPLOAD DEBUG ===');
+    console.log('Files received:', req.files?.length);
+    console.log('Upload directory:', UPLOAD_DIR);
+    console.log('Body:', req.body);
+    
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ success: false, error: 'No files uploaded' });
+    }
+
     const createdNotes = [];
 
     for (const file of req.files) {
-      // Store only relative path for later URL generation
-      const filePath = `uploads/${file.filename}`; // no leading slash
+      console.log('Processing file:', file.filename);
+      console.log('File saved to:', file.path);
+      
+      // Store relative path WITHOUT leading slash
+      const filePath = `uploads/${file.filename}`;
+      
       const note = await Note.create({
         fileName: file.originalname,
-        filePath, // relative path
+        filePath, // Should be: uploads/filename.ext (no leading slash)
         fileType: file.mimetype,
         fileSize: file.size,
         year: Number(req.body.year),
@@ -68,9 +81,12 @@ app.post('/upload', upload.array('file'), async (req, res) => {
         uploadedBy: req.body.uploadedBy,
         uploadedByEmail: req.body.uploadedByEmail
       });
+      
+      console.log('Note created with filePath:', note.filePath);
       createdNotes.push(note);
     }
 
+    console.log('=== UPLOAD COMPLETE ===');
     res.json({ success: true, notes: createdNotes });
   } catch (err) {
     console.error('Upload error:', err);
@@ -90,27 +106,16 @@ app.get('/notes', async (req, res) => {
 });
 
 // Download a note file
-// Download a note file
 app.get('/notes/:id/download', async (req, res) => {
   try {
     const note = await Note.findById(req.params.id);
     if (!note) return res.status(404).json({ error: 'Note not found' });
 
-    console.log('Note filePath from DB:', note.filePath);
-    console.log('__dirname:', __dirname);
-    console.log('UPLOAD_DIR:', UPLOAD_DIR);
-    console.log('Constructed path:', path.join(__dirname, note.filePath));
-    console.log('File exists:', fs.existsSync(path.join(__dirname, note.filePath)));
+    // Remove leading slash if present
+    let cleanPath = note.filePath.startsWith('/') ? note.filePath.substring(1) : note.filePath;
+    const filePath = path.join(__dirname, cleanPath);
     
-    const altPath = path.join(UPLOAD_DIR, path.basename(note.filePath));
-    console.log('Alternative path:', altPath);
-    console.log('Alt file exists:', fs.existsSync(altPath));
-    
-    const uploadedFiles = fs.readdirSync(UPLOAD_DIR);
-    console.log('Files in uploads directory:', uploadedFiles);
-    console.log('======================');
-
-    const filePath = path.join(__dirname, note.filePath);
+    console.log('Downloading from:', filePath);
     
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'File not found on server' });
