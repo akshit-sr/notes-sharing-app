@@ -19,6 +19,8 @@ build/
 .firebase/
 firestore.rules
 firestore.indexes.json
+src/firebaseConfig.js
+
 
 # Server-specific
 server/node_modules/
