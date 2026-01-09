@@ -90,21 +90,32 @@ app.get('/notes', async (req, res) => {
 });
 
 // Download a note file
+// Download a note file
 app.get('/notes/:id/download', async (req, res) => {
   try {
     const note = await Note.findById(req.params.id);
     if (!note) return res.status(404).json({ error: 'Note not found' });
 
-    const filePath = path.join(__dirname, note.filePath);
+    console.log('Note filePath from DB:', note.filePath);
+    console.log('__dirname:', __dirname);
+    console.log('UPLOAD_DIR:', UPLOAD_DIR);
+    console.log('Constructed path:', path.join(__dirname, note.filePath));
+    console.log('File exists:', fs.existsSync(path.join(__dirname, note.filePath)));
     
-    console.log('Download attempt - File path:', filePath); // Debug log
-    console.log('File exists:', fs.existsSync(filePath)); // Debug log
+    const altPath = path.join(UPLOAD_DIR, path.basename(note.filePath));
+    console.log('Alternative path:', altPath);
+    console.log('Alt file exists:', fs.existsSync(altPath));
+    
+    const uploadedFiles = fs.readdirSync(UPLOAD_DIR);
+    console.log('Files in uploads directory:', uploadedFiles);
+    console.log('======================');
+
+    const filePath = path.join(__dirname, note.filePath);
     
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'File not found on server' });
     }
 
-    // Use sendFile instead of download for better error handling
     res.download(filePath, note.fileName, (err) => {
       if (err) {
         console.error('Download stream error:', err);
