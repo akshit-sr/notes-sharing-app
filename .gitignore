@@ -20,8 +20,6 @@ build/
 firestore.rules
 firestore.indexes.json
 
-# Note: Keep firebase.json and .firebaserc if you want others to have the config
-
 # Server-specific
 server/node_modules/
 server/uploads/
