@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Upload, LogOut, Home, PlusCircle, Filter, X, Download, FileText, Moon, Sun, Trash2 } from 'lucide-react';
 import { auth, provider } from './firebaseConfig';
+import { onAuthStateChanged } from "firebase/auth";
 import { signInWithPopup } from "firebase/auth";
 import { signOut } from "firebase/auth";
 
@@ -17,11 +18,11 @@ const NotesApp = () => {
   const [user, setUser] = useState(null);
   const [currentPage, setCurrentPage] = useState('feed');
   const [notes, setNotes] = useState([]);
-  const [filteredNotes, setFilteredNotes] = useState([]);
   const [filterSemester, setFilterSemester] = useState('');
   const [filterYear, setFilterYear] = useState('');
   const [filterSubject, setFilterSubject] = useState('');
   const [imageError, setImageError] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   // Upload form state
   const [uploadFiles, setUploadFiles] = useState([]);
@@ -33,6 +34,30 @@ const NotesApp = () => {
   const [viewingNote, setViewingNote] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [darkMode, setDarkMode] = useState(false);
+
+  const fetchNotes = async () => {
+    try {
+      const res = await fetch(`${BASE_URL}/notes`);
+      const data = await res.json();
+      setNotes(data);
+    } catch (err) {
+      console.error('Failed to fetch notes:', err);
+    }
+  };
+
+  const applyFilters = () => {
+    let filtered = notes;
+    if (filterSemester) {
+      filtered = filtered.filter(n => n.semester === Number(filterSemester));
+    }
+    if (filterYear) {
+      filtered = filtered.filter(n => n.year === Number(filterYear));
+    }
+    if (filterSubject) {
+      filtered = filtered.filter(n => n.subject.toLowerCase().includes(filterSubject.toLowerCase()));
+    }
+    return filtered;
+  };
 
   // Get available semesters based on selected year
   const getAvailableSemesters = () => {
@@ -51,66 +76,26 @@ const NotesApp = () => {
 
   // Load saved data on mount
   useEffect(() => {
-    let savedUser = null;
-    try {
-      savedUser = JSON.parse(localStorage.getItem('notesAppUser'));
-    } catch (e) {
-      console.warn('Invalid user in localStorage, clearing it');
-      localStorage.removeItem('notesAppUser'); // Clear broken data
-    }
-    setUser(savedUser);
+    const init = async () => {
+      let savedUser = null;
+      try {
+        savedUser = JSON.parse(localStorage.getItem('notesAppUser'));
+      } catch {
+        localStorage.removeItem('notesAppUser');
+      }
+      setUser(savedUser);
 
-    let savedDarkMode = false;
-    try {
-      savedDarkMode = JSON.parse(localStorage.getItem('darkMode') || 'false');
-    } catch (e) {
-      savedDarkMode = false;
-    }
-    setDarkMode(savedDarkMode);
+      const savedDarkMode = JSON.parse(localStorage.getItem('darkMode') || 'false');
+      setDarkMode(savedDarkMode);
 
-    fetchNotes();
+      await fetchNotes();
+    };
+
+    init();
   }, []);
 
-
-  const fetchNotes = () => {
-    fetch(`${BASE_URL}/notes`)
-      .then(res => res.json())
-      .then(data => {
-        setNotes(data);
-        setFilteredNotes(data);
-      })
-      .catch(err => console.error(err));
-  };
-
-  // Reset semester when year changes
   useEffect(() => {
-    const available = getAvailableSemesters();
-    setSemester(available[0] || '');
-  }, [year]);
-
-  // Apply filters
-  useEffect(() => {
-    let filtered = notes;
-    if (filterSemester) {
-      filtered = filtered.filter(
-        n => n.semester === Number(filterSemester)
-      );
-    }
-    if (filterYear) {
-      filtered = filtered.filter(
-        n => n.year === Number(filterYear)
-      );
-    }
-    if (filterSubject) {
-      filtered = filtered.filter(
-        n => n.subject.toLowerCase().includes(filterSubject.toLowerCase())
-      );
-    }
-    setFilteredNotes(filtered);
-  }, [filterSemester, filterYear, filterSubject, notes]);
-
-  useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((firebaseUser) => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       if (firebaseUser) {
         const userObj = {
           email: firebaseUser.email,
@@ -119,14 +104,16 @@ const NotesApp = () => {
         };
         setUser(userObj);
         localStorage.setItem('notesAppUser', JSON.stringify(userObj));
-
-        // Fetch notes right after login
-        fetchNotes();
+      } else {
+        setUser(null);
+        localStorage.removeItem('notesAppUser');
       }
+      setLoading(false);
     });
+
     return () => unsubscribe();
   }, []);
-
+  
   const handleGoogleLogin = async () => {
     try {
       const result = await signInWithPopup(auth, provider);
@@ -182,6 +169,10 @@ const NotesApp = () => {
   };
 
   const handleUpload = async () => {
+    if (!user) {
+      alert('Please login first');
+      return;
+    }
     if (uploadFiles.length === 0 || !semester || !year || !subject) {
       alert('Fill all required fields and select at least one file');
       return;
@@ -209,7 +200,6 @@ const NotesApp = () => {
       if (data.success && data.notes) {
         // Prepend all newly uploaded notes to feed
         setNotes(prev => [...data.notes, ...prev]);
-        setFilteredNotes(prev => [...data.notes, ...prev]);
       } else {
         alert('Upload failed. Please try again.');
       }
@@ -224,7 +214,7 @@ const NotesApp = () => {
   };
 
   const handleLike = async (noteId) => {
-    if (!user || !noteId) return; // double-check
+    if (!user || !noteId) return;
 
     try {
       const res = await fetch(`${BASE_URL}/notes/${noteId}/like`, {
@@ -232,7 +222,10 @@ const NotesApp = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: user.email })
       });
-      if (res.ok) fetchNotes();
+      if (res.ok) {
+        const data = await res.json();
+        setNotes(prev => prev.map(n => n._id === noteId ? {...n, likes: data.likes, likedBy: data.likedBy} : n));
+      }
     } catch (err) { console.error(err); }
   };
 
@@ -272,7 +265,6 @@ const NotesApp = () => {
 
     if (res.ok) {
       setNotes(prev => prev.filter(n => n._id !== noteId));
-      setFilteredNotes(prev => prev.filter(n => n._id !== noteId));
     } else {
       alert('Failed to delete. You can only delete your own uploads.');
     }
@@ -290,40 +282,52 @@ const NotesApp = () => {
 
   // Login Page
   if (!user) {
-    return (
-      <div className={`min-h-screen ${darkMode ? 'bg-gray-900' : 'bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-100'} flex items-center justify-center p-4`}>
-        <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-2xl shadow-2xl p-8 max-w-md w-full`}>
-          <div className="text-center mb-8">
-            <div className="bg-indigo-600 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Upload className="w-8 h-8 text-white" />
+      return (
+    <>
+      {!user ? (
+        <div className={`min-h-screen ${darkMode ? 'bg-gray-900' : 'bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-100'} flex items-center justify-center p-4`}>
+          <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-2xl shadow-2xl p-8 max-w-md w-full`}>
+            <div className="text-center mb-8">
+              <div className="bg-indigo-600 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Upload className="w-8 h-8 text-white" />
+              </div>
+              <h1 className={`text-3xl font-bold ${darkMode ? 'text-white' : 'text-gray-800'} mb-2`}>
+                Notes Sharing
+              </h1>
+              <p className={`${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                Share and discover study materials
+              </p>
             </div>
-            <h1 className={`text-3xl font-bold ${darkMode ? 'text-white' : 'text-gray-800'} mb-2`}>Notes Sharing</h1>
-            <p className={`${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Share and discover study materials</p>
-          </div>
-          
-          <button
-            onClick={handleGoogleLogin}
-            className={`w-full ${darkMode ? 'bg-gray-700 border-gray-600 text-white hover:bg-gray-600' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'} border-2 rounded-lg py-3 px-4 flex items-center justify-center gap-3 transition-colors font-medium`}
-          >
-            <svg className="w-6 h-6" viewBox="0 0 24 24">
-              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-            </svg>
-            Continue with Google
-          </button>
 
-          <button
-            onClick={toggleDarkMode}
-            className={`w-full mt-4 ${darkMode ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'} rounded-lg py-2 px-4 flex items-center justify-center gap-2 transition-colors`}
-          >
-            {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-            {darkMode ? 'Light Mode' : 'Dark Mode'}
-          </button>
+            <button
+              onClick={handleGoogleLogin}
+              className={`w-full ${darkMode ? 'bg-gray-700 border-gray-600 text-white hover:bg-gray-600' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'} border-2 rounded-lg py-3 px-4 flex items-center justify-center gap-3 transition-colors font-medium`}
+            >
+              <svg className="w-6 h-6" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+              </svg>
+              Continue with Google
+            </button>
+
+            <button
+              onClick={toggleDarkMode}
+              className={`w-full mt-4 ${darkMode ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'} rounded-lg py-2 px-4 flex items-center justify-center gap-2 transition-colors`}
+            >
+              {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+              {darkMode ? 'Light Mode' : 'Dark Mode'}
+            </button>
+          </div>
         </div>
-      </div>
-    );
+      ) : (
+        <div className={`min-h-screen ${darkMode ? 'bg-gray-900' : 'bg-gray-50'}`}>
+          {/* Rest of your main app (error notification, modal, header, upload/feed pages, etc.) goes here */}
+        </div>
+      )}
+    </>
+  );
   }
 
   return (
@@ -482,7 +486,17 @@ const NotesApp = () => {
                 </label>
                 <select
                   value={year}
-                  onChange={(e) => setYear(e.target.value)}
+                  onChange={(e) => {
+                    const newYear = e.target.value;
+                    setYear(newYear);
+                    if (newYear) {
+                      const yearNum = parseInt(newYear);
+                      const available = [yearNum * 2 - 1, yearNum * 2];
+                      setSemester(available[0] || '');
+                    } else {
+                      setSemester('');
+                    }
+                  }}
                   className={`w-full px-4 py-2 border ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent`}
                   required
                 >
@@ -610,7 +624,7 @@ const NotesApp = () => {
           </div>
 
           {/* Notes Feed */}
-          {filteredNotes.length === 0 ? (
+          {applyFilters().length === 0 ? (
             <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl shadow-sm p-12 text-center`}>
               <Upload className={`w-16 h-16 ${darkMode ? 'text-gray-600' : 'text-gray-300'} mx-auto mb-4`} />
               <h3 className={`text-xl font-semibold ${darkMode ? 'text-white' : 'text-gray-800'} mb-2`}>No notes yet</h3>
@@ -624,7 +638,7 @@ const NotesApp = () => {
             </div>
           ) : (
             <div className="space-y-6">
-              {filteredNotes.map(note => (
+              {applyFilters().map(note => (
                 <div key={note._id} className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl shadow-sm overflow-hidden`}>
                   {/* Header */}
                   <div className="p-4 flex items-center gap-3">
@@ -647,7 +661,11 @@ const NotesApp = () => {
                       <img 
                         src={getFileUrl(note.filePath)}
                         alt={note.fileName}
-                        className="max-h-64 object-contain mb-4"
+                        className="max-h-64 object-contain mb-4 cursor-pointer"
+                        onClick={() => {
+                          setViewingNote(note);
+                          setImageError(false);
+                        }}
                         onError={(e) => (e.target.style.display = 'none')}
                       />
                       <button
@@ -743,7 +761,7 @@ const NotesApp = () => {
                       <button
                         onClick={() => handleLike(note._id)}
                         className={`flex items-center gap-2 transition-colors ${
-                          note.likedBy.includes(user?.email ?? '')
+                          (note.likedBy ?? []).includes(user?.email ?? '')
                             ? 'text-red-600'
                             : 'text-gray-600 hover:text-red-600'
                         }`}

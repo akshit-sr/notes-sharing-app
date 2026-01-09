@@ -19,6 +19,7 @@ build/
 .firebase/
 firestore.rules
 firestore.indexes.json
+
 # Note: Keep firebase.json and .firebaserc if you want others to have the config
 
 # Server-specific
