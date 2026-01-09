@@ -55,7 +55,7 @@ app.post('/upload', upload.array('file'), async (req, res) => {
 
     for (const file of req.files) {
       // Store only relative path for later URL generation
-      const filePath = `/uploads/${file.filename}`;
+      const filePath = `uploads/${file.filename}`; // no leading slash
       const note = await Note.create({
         fileName: file.originalname,
         filePath, // relative path
@@ -96,12 +96,26 @@ app.get('/notes/:id/download', async (req, res) => {
     if (!note) return res.status(404).json({ error: 'Note not found' });
 
     const filePath = path.join(__dirname, note.filePath);
-    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+    
+    console.log('Download attempt - File path:', filePath); // Debug log
+    console.log('File exists:', fs.existsSync(filePath)); // Debug log
+    
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'File not found on server' });
+    }
 
-    res.download(filePath, note.fileName); // triggers browser download
+    // Use sendFile instead of download for better error handling
+    res.download(filePath, note.fileName, (err) => {
+      if (err) {
+        console.error('Download stream error:', err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Failed to download file' });
+        }
+      }
+    });
   } catch (err) {
     console.error('Download error:', err);
-    res.status(500).json({ error: 'Failed to download file' });
+    res.status(500).json({ error: 'Failed to download file', details: err.message });
   }
 });
 
